@@ -2,6 +2,7 @@ import { db, schema } from "../../db";
 import { eq } from "drizzle-orm";
 import { RssAdapter } from "./rss-adapter";
 import { GitHubAdapter } from "./github-adapter";
+import { HuggingFacePapersAdapter } from "./hf-papers-adapter";
 import type { SourceAdapter } from "../types";
 
 export function getEnabledAdapters(): SourceAdapter[] {
@@ -11,9 +12,20 @@ export function getEnabledAdapters(): SourceAdapter[] {
     .where(eq(schema.sources.enabled, true))
     .all();
 
+  // Sort by priority so highest-priority sources run first
+  sources.sort((a, b) => (b.sourcePriority ?? 50) - (a.sourcePriority ?? 50));
+
   const adapters: SourceAdapter[] = [];
 
   for (const source of sources) {
+    // Skip sources with too many consecutive failures (auto-disable)
+    if ((source.consecutiveFailures ?? 0) >= 5) {
+      console.warn(
+        `[sources] Skipping "${source.id}" — ${source.consecutiveFailures} consecutive failures. Fix the source or reset.`
+      );
+      continue;
+    }
+
     try {
       const adapter = createAdapter(source);
       if (adapter) {
@@ -35,6 +47,7 @@ function createAdapter(
 ): SourceAdapter | null {
   switch (source.type) {
     case "rss":
+    case "blog":
       return new RssAdapter({
         id: source.id,
         name: source.name,
@@ -43,37 +56,22 @@ function createAdapter(
         category: source.category,
       });
 
-    case "blog":
-      // Blogs are treated as RSS feeds (most have RSS endpoints)
-      return new RssAdapter({
-        id: source.id,
-        name: source.name,
-        url: source.url,
-        type: "blog",
-        category: source.category,
-      });
-
     case "scraper":
-      // GitHub trending uses its own adapter
       if (source.id === "github_trending" || source.url.includes("github.com")) {
         return new GitHubAdapter({ id: source.id, name: source.name });
       }
-      console.warn(
-        `[sources] No scraper implementation for source "${source.id}"`
-      );
+      console.warn(`[sources] No scraper implementation for source "${source.id}"`);
       return null;
 
     case "api":
-      // API sources need specific adapters; skip unimplemented ones
-      console.warn(
-        `[sources] API adapter not yet implemented for "${source.id}"`
-      );
+      if (source.id === "hf_papers") {
+        return new HuggingFacePapersAdapter();
+      }
+      console.warn(`[sources] API adapter not yet implemented for "${source.id}"`);
       return null;
 
     default:
-      console.warn(
-        `[sources] Unknown source type "${source.type}" for "${source.id}"`
-      );
+      console.warn(`[sources] Unknown source type "${source.type}" for "${source.id}"`);
       return null;
   }
 }

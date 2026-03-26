@@ -1,4 +1,5 @@
 import type { SourceAdapter, RawItem } from "../types";
+import type { DateConfidence } from "../../types";
 
 export interface RssSourceConfig {
   id: string;
@@ -47,16 +48,19 @@ export class RssAdapter implements SourceAdapter {
       throw new Error(`RSS fetch failed for ${this.name}: ${message}`);
     }
 
+    if (!xml.includes("<item") && !xml.includes("<entry") && !xml.includes("<rss") && !xml.includes("<feed")) {
+      console.warn(`[rss-adapter] Response from ${this.url} does not appear to be RSS/Atom XML`);
+      return [];
+    }
+
     return this.parseXml(xml);
   }
 
   private parseXml(xml: string): RawItem[] {
     const items: RawItem[] = [];
 
-    // Try RSS 2.0 <item> elements first, then Atom <entry> elements
     const rssItems = this.extractElements(xml, "item");
     const atomEntries = rssItems.length > 0 ? [] : this.extractElements(xml, "entry");
-
     const entries = rssItems.length > 0 ? rssItems : atomEntries;
 
     for (const entry of entries) {
@@ -66,7 +70,7 @@ export class RssAdapter implements SourceAdapter {
           items.push(item);
         }
       } catch (err) {
-        console.warn(`[rss-adapter] Failed to parse entry: ${err}`);
+        console.warn(`[rss-adapter] Failed to parse entry from ${this.name}: ${err}`);
       }
     }
 
@@ -104,19 +108,16 @@ export class RssAdapter implements SourceAdapter {
   }
 
   private getAtomLink(xml: string): string | null {
-    // Atom links: <link href="..." />  or <link rel="alternate" href="..." />
     const linkRegex = /<link[^>]*href=["']([^"']+)["'][^>]*\/?>/gi;
     let match: RegExpExecArray | null;
 
     while ((match = linkRegex.exec(xml)) !== null) {
       const linkTag = match[0];
-      // Prefer rel="alternate" or no rel attribute
       if (!linkTag.includes('rel="') || linkTag.includes('rel="alternate"')) {
         return match[1];
       }
     }
 
-    // Fallback: take any link href
     const fallback = /<link[^>]*href=["']([^"']+)["'][^>]*\/?>/i.exec(xml);
     return fallback ? fallback[1] : null;
   }
@@ -126,6 +127,7 @@ export class RssAdapter implements SourceAdapter {
     let url: string | null;
     let content: string | null;
     let publishedAt: string | null;
+    let updatedAt: string | null = null;
     let author: string | null;
     let imageUrl: string | null = null;
 
@@ -145,10 +147,13 @@ export class RssAdapter implements SourceAdapter {
       content =
         this.getTagContent(entryXml, "summary") ??
         this.getTagContent(entryXml, "content");
-      publishedAt =
-        this.getTagContent(entryXml, "published") ??
-        this.getTagContent(entryXml, "updated");
-      author = this.getTagContent(entryXml, "name"); // inside <author><name>
+      publishedAt = this.getTagContent(entryXml, "published");
+      updatedAt = this.getTagContent(entryXml, "updated");
+      // If no published date, try updated — but track it as lower confidence
+      if (!publishedAt && updatedAt) {
+        publishedAt = updatedAt;
+      }
+      author = this.getTagContent(entryXml, "name");
     }
 
     // Try to extract image from content
@@ -157,16 +162,30 @@ export class RssAdapter implements SourceAdapter {
       if (imgMatch) imageUrl = imgMatch[1];
     }
 
-    // Parse date
+    // Parse and validate date — never fabricate
     let isoDate: string | undefined;
+    let dateConfidence: DateConfidence = "unknown";
     if (publishedAt) {
       try {
         const d = new Date(publishedAt);
         if (!isNaN(d.getTime())) {
-          isoDate = d.toISOString();
+          // Reject dates more than 1 day in the future or before 2019
+          if (d.getTime() <= Date.now() + 86400000 && d.getFullYear() >= 2019) {
+            isoDate = d.toISOString();
+            // Determine confidence
+            if (/\d{2}:\d{2}/.test(publishedAt)) {
+              dateConfidence = "exact";
+            } else {
+              dateConfidence = "day";
+            }
+          } else {
+            console.warn(`[rss-adapter] Rejected out-of-range date "${publishedAt}" for "${title}" (${this.name})`);
+          }
+        } else {
+          console.warn(`[rss-adapter] Could not parse date "${publishedAt}" for "${title}" (${this.name})`);
         }
       } catch {
-        // Ignore invalid dates
+        console.warn(`[rss-adapter] Invalid date "${publishedAt}" for "${title}" (${this.name})`);
       }
     }
 
@@ -177,8 +196,10 @@ export class RssAdapter implements SourceAdapter {
       url,
       content: content ?? undefined,
       publishedAt: isoDate,
+      updatedAt: updatedAt ? new Date(updatedAt).toISOString() : undefined,
       imageUrl: imageUrl ?? undefined,
       author: author ?? undefined,
+      dateConfidence,
     };
   }
 

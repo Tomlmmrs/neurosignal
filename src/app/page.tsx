@@ -7,8 +7,9 @@ import TrendingPanel from "@/components/dashboard/TrendingPanel";
 import TopEntities from "@/components/dashboard/TopEntities";
 import RankModeSelector from "@/components/filters/RankModeSelector";
 import CategoryFilter from "@/components/filters/CategoryFilter";
+import TimeWindowFilter from "@/components/filters/TimeWindowFilter";
 import { getDashboardStats, getItems, getActiveSignals, getTrendingClusters, getTopEntities } from "@/lib/db/queries";
-import type { RankMode, Category } from "@/lib/types";
+import type { RankMode, Category, TimeWindow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -19,20 +20,22 @@ interface PageProps {
     company?: string;
     q?: string;
     view?: string;
+    t?: string;
   }>;
 }
 
 export default async function DashboardPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const mode = (params.view || params.mode || "important") as RankMode;
+  const mode = (params.view || params.mode || "latest") as RankMode;
   const category = params.category as Category | undefined;
   const company = params.company || undefined;
   const search = params.q || undefined;
+  const timeWindow = (params.t || "3d") as TimeWindow;
 
   let stats, items, signalsList, trending, topEntitiesList;
   try {
     stats = getDashboardStats();
-    items = getItems({ mode, category, company, search, limit: 40 });
+    items = getItems({ mode, category, company, search, limit: 40, timeWindow });
     signalsList = getActiveSignals(8);
     trending = getTrendingClusters(8);
     topEntitiesList = getTopEntities(undefined, 12);
@@ -66,7 +69,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
             <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
               <div>
-                <RankModeSelector />
+                <div className="flex items-center justify-between gap-4">
+                  <RankModeSelector />
+                  <TimeWindowFilter />
+                </div>
 
                 <div className="mt-3">
                   <CategoryFilter />
@@ -77,6 +83,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     <span className="text-muted">Results for:</span>
                     <span className="font-medium text-foreground">&quot;{search}&quot;</span>
                     <span className="text-muted">({items.length} found)</span>
+                  </div>
+                )}
+
+                {items.length === 0 && !search && (
+                  <div className="mt-6 rounded-lg border border-border bg-card p-8 text-center">
+                    <p className="text-muted-foreground">
+                      No items found in this time window. Try expanding the time range or run ingestion:
+                    </p>
+                    <code className="mt-3 block rounded-lg bg-background px-4 py-2 text-sm text-accent">
+                      npm run ingest
+                    </code>
                   </div>
                 )}
 

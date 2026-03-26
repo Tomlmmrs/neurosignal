@@ -1,9 +1,10 @@
-import { Database, CalendarPlus, Radio, Bell } from "lucide-react";
+import { Database, CalendarPlus, Clock3, Radio, Bell } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 interface Stats {
   totalItems: number;
   todayItems: number;
+  last3dItems?: number;
   activeSignalCount: number;
   unreadAlerts: number;
 }
@@ -42,10 +43,16 @@ export default function StatsBar({ stats }: { stats: Stats }) {
         color="text-accent"
       />
       <StatCard
-        label="New today"
+        label="Last 24h"
         value={stats.todayItems}
         icon={CalendarPlus}
         color="text-success"
+      />
+      <StatCard
+        label="Last 3 days"
+        value={stats.last3dItems ?? 0}
+        icon={Clock3}
+        color="text-blue-400"
       />
       <StatCard
         label="Active signals"

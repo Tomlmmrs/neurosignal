@@ -1,10 +1,18 @@
 import { randomUUID } from "crypto";
 import { db, schema } from "../db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, like } from "drizzle-orm";
 import type { NewItem } from "../db/schema";
 import type { SourceAdapter, RawItem, PipelineResult } from "./types";
-import type { Category, SourceType } from "../types";
+import type { Category, SourceType, DateConfidence } from "../types";
 import { getEnabledAdapters } from "./sources";
+import {
+  parseAndValidateDate,
+  computeFreshnessScore,
+  isLikelyAIContent,
+  normalizeUrl,
+  titleSimilarity,
+  contentQualityMultiplier,
+} from "../utils/validate";
 
 // ─── Category Detection ──────────────────────────────────────────────
 const CATEGORY_KEYWORDS: Record<Category, string[]> = {
@@ -24,14 +32,13 @@ const CATEGORY_KEYWORDS: Record<Category, string[]> = {
     "transformer", "attention", "architecture", "preprint",
   ],
   company: [
-    "openai", "anthropic", "google", "meta", "microsoft", "nvidia", "deepmind",
     "startup", "funding", "acquisition", "hire", "valuation", "series",
     "raised", "founded", "ceo", "partnership",
   ],
   opensource: [
     "open source", "open-source", "opensource", "github", "hugging face",
     "huggingface", "apache", "mit license", "repository", "repo", "fork",
-    "contributor", "community", "release",
+    "contributor", "community",
   ],
   policy: [
     "regulation", "policy", "law", "government", "eu", "congress", "senate",
@@ -39,9 +46,9 @@ const CATEGORY_KEYWORDS: Record<Category, string[]> = {
     "executive order", "legislation", "compliance",
   ],
   market: [
-    "market", "revenue", "growth", "investment", "ipo", "stock", "valuation",
+    "market", "revenue", "growth", "investment", "ipo", "stock",
     "enterprise", "adoption", "industry", "forecast", "billion", "million",
-    "partnership", "deal", "contract",
+    "deal", "contract",
   ],
 };
 
@@ -58,6 +65,21 @@ const OPEN_SOURCE_KEYWORDS = [
   "open source", "open-source", "opensource", "apache license", "mit license",
   "gpl", "cc-by", "public domain", "github.com", "huggingface.co/models",
   "weights released", "model weights", "open weights",
+];
+
+// ─── Primary source types (official announcements) ─────
+const PRIMARY_SOURCE_TYPES = ["blog", "api"];
+
+// ─── Scoring keywords ───────────────────────────────────────────────
+const HIGH_IMPORTANCE_KEYWORDS = [
+  "breakthrough", "state-of-the-art", "sota", "outperforms", "surpasses",
+  "revolutionary", "first", "largest", "fastest", "billion", "launch",
+  "release", "announce", "gpt-5", "gpt-4", "claude", "gemini",
+];
+
+const HIGH_NOVELTY_KEYWORDS = [
+  "novel", "new approach", "first-ever", "unprecedented", "never before",
+  "introduces", "proposes", "invention", "paradigm", "emergent",
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -117,46 +139,27 @@ function extractTags(title: string): string[] {
     .slice(0, 8);
 }
 
-// ─── Scoring ─────────────────────────────────────────────────────────
-// Heuristic-based scoring until the ranking/scorer module is built.
-// TODO: Replace with import from ../ranking/scorer when available.
-
-const HIGH_IMPORTANCE_KEYWORDS = [
-  "breakthrough", "state-of-the-art", "sota", "outperforms", "surpasses",
-  "revolutionary", "first", "largest", "fastest", "billion", "launch",
-  "release", "announce", "gpt-5", "gpt-4", "claude", "gemini",
-];
-
-const HIGH_NOVELTY_KEYWORDS = [
-  "novel", "new approach", "first-ever", "unprecedented", "never before",
-  "introduces", "proposes", "invention", "paradigm", "emergent",
-];
-
 function estimateImportance(title: string, content: string): number {
   const text = `${title} ${content}`.toLowerCase();
   let score = 50;
-
   for (const kw of HIGH_IMPORTANCE_KEYWORDS) {
     if (text.includes(kw)) score += 5;
   }
-
-  // Boost for known major companies
   const majorCompanies = ["openai", "anthropic", "google", "meta", "deepmind"];
   if (majorCompanies.some((c) => text.includes(c))) score += 8;
-
   return Math.min(100, Math.max(0, score));
 }
 
 function estimateNovelty(title: string, content: string): number {
   const text = `${title} ${content}`.toLowerCase();
   let score = 50;
-
   for (const kw of HIGH_NOVELTY_KEYWORDS) {
     if (text.includes(kw)) score += 6;
   }
-
   return Math.min(100, Math.max(0, score));
 }
+
+// ─── Composite Score ───────────────────────────────────────────────
 
 function calculateComposite(scores: {
   importance: number;
@@ -164,16 +167,68 @@ function calculateComposite(scores: {
   credibility: number;
   impact: number;
   practical: number;
+  freshness: number;
+  qualityMultiplier: number;
 }): number {
-  return (
-    scores.importance * 0.25 +
-    scores.novelty * 0.2 +
-    scores.credibility * 0.15 +
-    scores.impact * 0.2 +
-    scores.practical * 0.1 +
-    // Recency bonus is handled at query time, so allocate the 0.1 weight evenly
-    ((scores.importance + scores.novelty) / 2) * 0.1
-  );
+  const raw =
+    scores.importance * 0.18 +
+    scores.novelty * 0.12 +
+    scores.credibility * 0.10 +
+    scores.impact * 0.18 +
+    scores.practical * 0.07 +
+    scores.freshness * 0.35; // Freshness now 35% of composite (was 25%)
+
+  return raw * scores.qualityMultiplier;
+}
+
+// ─── Get source credibility from DB ─────────────────────────────────
+
+function getSourceCredibility(sourceId: string): number {
+  const source = db
+    .select({ credibilityBase: schema.sources.credibilityBase })
+    .from(schema.sources)
+    .where(eq(schema.sources.id, sourceId))
+    .get();
+  return source?.credibilityBase ?? 65;
+}
+
+// ─── Title-based deduplication ──────────────────────────────────────
+
+function findSimilarItem(title: string, url: string): string | null {
+  // First check normalized URL
+  const normalizedUrl = normalizeUrl(url);
+  const urlMatch = db
+    .select({ id: schema.items.id })
+    .from(schema.items)
+    .where(eq(schema.items.url, normalizedUrl))
+    .get();
+  if (urlMatch) return urlMatch.id;
+
+  // Check canonical URL
+  const canonicalMatch = db
+    .select({ id: schema.items.id })
+    .from(schema.items)
+    .where(eq(schema.items.canonicalUrl, normalizedUrl))
+    .get();
+  if (canonicalMatch) return canonicalMatch.id;
+
+  // Check title similarity against recent items (last 7 days)
+  const recentItems = db
+    .select({ id: schema.items.id, title: schema.items.title })
+    .from(schema.items)
+    .where(
+      sql`COALESCE(${schema.items.publishedAt}, ${schema.items.discoveredAt}) >= datetime('now', '-7 days')`
+    )
+    .all();
+
+  for (const existing of recentItems) {
+    const similarity = titleSimilarity(title, existing.title);
+    if (similarity > 0.75) {
+      return existing.id;
+    }
+  }
+
+  return null;
 }
 
 // ─── Normalize ───────────────────────────────────────────────────────
@@ -186,11 +241,27 @@ function normalize(raw: RawItem, adapter: SourceAdapter): NewItem {
   const isOpenSource = detectOpenSource(raw.title, content, raw.url);
   const tags = extractTags(raw.title);
 
+  // Validate and parse the publish date
+  const parsedDate = parseAndValidateDate(raw.publishedAt);
+  const publishedAt = parsedDate?.iso ?? null;
+  const dateConfidence: DateConfidence = raw.dateConfidence
+    ?? parsedDate?.confidence
+    ?? "unknown";
+
+  if (!publishedAt && raw.publishedAt) {
+    console.warn(`[pipeline] Rejected invalid date "${raw.publishedAt}" for "${raw.title}" from ${adapter.id}`);
+  }
+
   const importance = estimateImportance(raw.title, content);
   const novelty = estimateNovelty(raw.title, content);
-  const credibility = 65; // default baseline; refined later per-source
+  const credibility = getSourceCredibility(adapter.id);
   const impact = Math.round((importance + novelty) / 2);
   const practical = 50;
+  const freshness = computeFreshnessScore(publishedAt, dateConfidence);
+  const qualityMultiplier = contentQualityMultiplier(raw.title);
+
+  const isPrimarySource = PRIMARY_SOURCE_TYPES.includes(adapter.type);
+  const normalizedUrl = normalizeUrl(raw.url);
 
   const composite = calculateComposite({
     importance,
@@ -198,16 +269,22 @@ function normalize(raw: RawItem, adapter: SourceAdapter): NewItem {
     credibility,
     impact,
     practical,
+    freshness,
+    qualityMultiplier,
   });
 
   return {
     id: randomUUID(),
     title: raw.title.trim(),
-    url: raw.url.trim(),
+    url: normalizedUrl,
+    canonicalUrl: normalizedUrl !== raw.url.trim() ? normalizedUrl : null,
     source: adapter.id,
     sourceType: adapter.type as SourceType,
-    publishedAt: raw.publishedAt ?? now,
+    publishedAt,
     discoveredAt: now,
+    firstSeenAt: now,
+    updatedAt: raw.updatedAt ?? null,
+    dateConfidence,
     category,
     content,
     imageUrl: raw.imageUrl ?? null,
@@ -217,9 +294,14 @@ function normalize(raw: RawItem, adapter: SourceAdapter): NewItem {
     credibilityScore: credibility,
     impactScore: impact,
     practicalScore: practical,
+    freshnessScore: freshness,
     compositeScore: Math.round(composite * 100) / 100,
     company,
-    isOpenSource: isOpenSource,
+    isOpenSource,
+    isPrimarySource,
+    isOriginalSource: isPrimarySource,
+    isDemo: false,
+    ingestionStatus: "ok",
     tags: JSON.stringify(tags),
     entities: JSON.stringify(company ? [company] : []),
   };
@@ -228,20 +310,24 @@ function normalize(raw: RawItem, adapter: SourceAdapter): NewItem {
 // ─── Pipeline ────────────────────────────────────────────────────────
 
 export async function runPipeline(adapter: SourceAdapter): Promise<PipelineResult> {
+  const startTime = Date.now();
   const result: PipelineResult = {
     source: adapter.id,
     fetched: 0,
     new: 0,
     updated: 0,
+    skipped: 0,
+    duplicates: 0,
     errors: [],
+    durationMs: 0,
   };
 
   console.log(`[pipeline] Starting fetch for source: ${adapter.id} (${adapter.name})`);
 
-  // 1. Fetch raw items
+  // 1. Fetch raw items with retry
   let rawItems: RawItem[];
   try {
-    rawItems = await adapter.fetch();
+    rawItems = await fetchWithRetry(adapter, 2);
     result.fetched = rawItems.length;
     console.log(`[pipeline] Fetched ${rawItems.length} items from ${adapter.id}`);
   } catch (err) {
@@ -249,64 +335,160 @@ export async function runPipeline(adapter: SourceAdapter): Promise<PipelineResul
     result.errors.push(`Fetch failed: ${message}`);
     console.error(`[pipeline] Fetch failed for ${adapter.id}: ${message}`);
 
-    // Record error on the source
-    try {
-      db.update(schema.sources)
-        .set({ lastError: message })
-        .where(eq(schema.sources.id, adapter.id))
-        .run();
-    } catch {
-      // Ignore DB errors during error recording
-    }
+    // Record failure
+    recordSourceFailure(adapter.id, message);
+    result.durationMs = Date.now() - startTime;
+    logFetch(adapter.id, result, "error", message);
     return result;
   }
 
   // 2. Process each item
   for (const raw of rawItems) {
     try {
-      // Check for duplicate by URL
-      const existing = db
-        .select({ id: schema.items.id })
-        .from(schema.items)
-        .where(eq(schema.items.url, raw.url.trim()))
-        .get();
-
-      if (existing) {
-        // Item already exists; skip for now (could update scores later)
-        result.updated += 0;
+      // Skip non-AI content from general feeds
+      if (!isLikelyAIContent(raw.title, raw.content)) {
+        result.skipped++;
         continue;
       }
 
-      // Normalize and insert
+      // Check for URL duplicate
+      const normalizedUrl = normalizeUrl(raw.url);
+      const existingByUrl = db
+        .select({ id: schema.items.id })
+        .from(schema.items)
+        .where(eq(schema.items.url, normalizedUrl))
+        .get();
+
+      if (existingByUrl) {
+        // Update freshness and validation on existing items
+        const parsedDate = parseAndValidateDate(raw.publishedAt);
+        const freshness = computeFreshnessScore(
+          parsedDate?.iso,
+          raw.dateConfidence ?? parsedDate?.confidence
+        );
+        db.update(schema.items)
+          .set({
+            freshnessScore: freshness,
+            lastValidatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.items.id, existingByUrl.id))
+          .run();
+        result.updated++;
+        continue;
+      }
+
+      // Check for title-based duplicate
+      const similarItemId = findSimilarItem(raw.title, raw.url);
       const item = normalize(raw, adapter);
+
+      if (similarItemId) {
+        // Insert but mark as duplicate
+        item.duplicateOf = similarItemId;
+        result.duplicates++;
+      }
+
       db.insert(schema.items).values(item).run();
-      result.new++;
+      if (!similarItemId) {
+        result.new++;
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Skip UNIQUE constraint errors silently (race condition)
+      if (message.includes("UNIQUE constraint")) {
+        result.updated++;
+        continue;
+      }
       result.errors.push(`Item "${raw.title}": ${message}`);
       console.error(`[pipeline] Error processing item "${raw.title}": ${message}`);
     }
   }
 
-  // 3. Update source lastFetched timestamp
+  // 3. Update source health
+  result.durationMs = Date.now() - startTime;
+  recordSourceSuccess(adapter.id, result);
+  logFetch(adapter.id, result, result.errors.length > 0 ? "partial" : "ok");
+
+  console.log(
+    `[pipeline] Completed ${adapter.id}: ${result.new} new, ${result.updated} updated, ${result.duplicates} dupes, ${result.skipped} skipped, ${result.errors.length} errors (${result.durationMs}ms)`
+  );
+
+  return result;
+}
+
+async function fetchWithRetry(adapter: SourceAdapter, maxRetries: number): Promise<RawItem[]> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await adapter.fetch();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+        console.warn(`[pipeline] Retry ${attempt + 1}/${maxRetries} for ${adapter.id} in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastError!;
+}
+
+function recordSourceFailure(sourceId: string, errorMsg: string) {
   try {
     db.update(schema.sources)
       .set({
         lastFetched: new Date().toISOString(),
-        lastError: null,
+        lastError: errorMsg,
+        lastErrorAt: new Date().toISOString(),
+        consecutiveFailures: sql`COALESCE(${schema.sources.consecutiveFailures}, 0) + 1`,
+        totalErrors: sql`COALESCE(${schema.sources.totalErrors}, 0) + 1`,
+        totalFetches: sql`COALESCE(${schema.sources.totalFetches}, 0) + 1`,
       })
-      .where(eq(schema.sources.id, adapter.id))
+      .where(eq(schema.sources.id, sourceId))
+      .run();
+  } catch {
+    // Ignore DB errors during error recording
+  }
+}
+
+function recordSourceSuccess(sourceId: string, result: PipelineResult) {
+  try {
+    db.update(schema.sources)
+      .set({
+        lastFetched: new Date().toISOString(),
+        lastSuccessAt: new Date().toISOString(),
+        lastError: result.errors.length > 0 ? result.errors.join("; ") : null,
+        consecutiveFailures: 0,
+        totalFetches: sql`COALESCE(${schema.sources.totalFetches}, 0) + 1`,
+        totalErrors: result.errors.length > 0
+          ? sql`COALESCE(${schema.sources.totalErrors}, 0) + ${result.errors.length}`
+          : schema.sources.totalErrors,
+        avgFetchDurationMs: result.durationMs,
+        lastItemCount: result.fetched,
+      })
+      .where(eq(schema.sources.id, sourceId))
       .run();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    result.errors.push(`Failed to update source timestamp: ${message}`);
+    console.error(`[pipeline] Failed to update source health: ${message}`);
   }
+}
 
-  console.log(
-    `[pipeline] Completed ${adapter.id}: ${result.new} new, ${result.updated} updated, ${result.errors.length} errors`
-  );
-
-  return result;
+function logFetch(sourceId: string, result: PipelineResult, status: string, errorMsg?: string) {
+  try {
+    db.insert(schema.sourceFetchLog).values({
+      id: randomUUID(),
+      sourceId,
+      fetchedAt: new Date().toISOString(),
+      durationMs: result.durationMs,
+      itemsFetched: result.fetched,
+      itemsNew: result.new,
+      itemsSkipped: result.skipped,
+      status,
+      errorMessage: errorMsg ?? (result.errors.length > 0 ? result.errors.join("; ") : null),
+    }).run();
+  } catch {
+    // Non-critical — don't fail the pipeline
+  }
 }
 
 export async function runAllSources(): Promise<PipelineResult[]> {
@@ -323,9 +505,13 @@ export async function runAllSources(): Promise<PipelineResult[]> {
   }
 
   const totalNew = results.reduce((sum, r) => sum + r.new, 0);
+  const totalUpdated = results.reduce((sum, r) => sum + r.updated, 0);
+  const totalDupes = results.reduce((sum, r) => sum + r.duplicates, 0);
   const totalErrors = results.reduce((sum, r) => sum + r.errors.length, 0);
+  const totalDuration = results.reduce((sum, r) => sum + r.durationMs, 0);
+
   console.log(
-    `[pipeline] Full run complete: ${totalNew} new items, ${totalErrors} errors across ${results.length} sources`
+    `[pipeline] Full run complete: ${totalNew} new, ${totalUpdated} updated, ${totalDupes} dupes, ${totalErrors} errors across ${results.length} sources (${totalDuration}ms total)`
   );
 
   return results;

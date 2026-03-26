@@ -1,26 +1,39 @@
 import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 
 // ─── Intelligence Items ─────────────────────────────────────────────
-// The core entity: every piece of AI intelligence we track
 export const items = sqliteTable(
   "items",
   {
     id: text("id").primaryKey(),
     title: text("title").notNull(),
     url: text("url").notNull().unique(),
-    source: text("source").notNull(), // e.g., "openai_blog", "arxiv", "github_trending"
-    sourceType: text("source_type").notNull(), // blog, research, news, social, github, release
-    publishedAt: text("published_at"), // ISO string
-    discoveredAt: text("discovered_at").notNull(), // when our system found it
-    category: text("category").notNull(), // model, tool, research, company, opensource, policy, market
+    canonicalUrl: text("canonical_url"), // resolved canonical URL if different from url
+    source: text("source").notNull(),
+    sourceType: text("source_type").notNull(),
+
+    // Timestamps — distinct meanings, never conflated
+    publishedAt: text("published_at"),       // when the content was published (from source)
+    discoveredAt: text("discovered_at").notNull(), // when our pipeline first saw it
+    firstSeenAt: text("first_seen_at").notNull(),  // earliest time we know about this item
+    updatedAt: text("updated_at"),           // when the source content was last updated
+    eventDate: text("event_date"),           // when the underlying event happened (if different)
+
+    // Date quality
+    dateConfidence: text("date_confidence").default("unknown"), // exact, day, estimated, unknown
+
+    // Classification
+    category: text("category").notNull(),
+    company: text("company"),
+    isOpenSource: integer("is_open_source", { mode: "boolean" }).default(false),
+    modelFamily: text("model_family"),
 
     // Content
     summary: text("summary"),
-    aiSummary: text("ai_summary"), // LLM-generated summary
+    aiSummary: text("ai_summary"),
     whyItMatters: text("why_it_matters"),
     whoShouldCare: text("who_should_care"),
     implications: text("implications"),
-    content: text("content"), // raw content/description
+    content: text("content"),
     imageUrl: text("image_url"),
 
     // Scoring (0-100)
@@ -28,19 +41,27 @@ export const items = sqliteTable(
     noveltyScore: real("novelty_score").default(50),
     credibilityScore: real("credibility_score").default(50),
     impactScore: real("impact_score").default(50),
-    practicalScore: real("practical_score").default(50), // how practically useful
-    compositeScore: real("composite_score").default(50), // weighted combination
+    practicalScore: real("practical_score").default(50),
+    compositeScore: real("composite_score").default(50),
+    freshnessScore: real("freshness_score").default(50),
 
     // Metadata
-    entities: text("entities"), // JSON array of entity names/IDs
-    tags: text("tags"), // JSON array of tags
-    modelFamily: text("model_family"), // if about a model
-    company: text("company"), // primary company/lab
-    isOpenSource: integer("is_open_source", { mode: "boolean" }).default(false),
+    entities: text("entities"), // JSON array
+    tags: text("tags"), // JSON array
 
-    // Clustering
+    // Clustering & source quality
     clusterId: text("cluster_id"),
-    isOriginalSource: integer("is_original_source", { mode: "boolean" }).default(true),
+    isOriginalSource: integer("is_original_source", { mode: "boolean" }).default(false),
+    isPrimarySource: integer("is_primary_source", { mode: "boolean" }).default(false),
+    duplicateOf: text("duplicate_of"), // item ID this is a duplicate of
+
+    // Validation
+    lastValidatedAt: text("last_validated_at"),
+    httpStatus: integer("http_status"),
+    ingestionStatus: text("ingestion_status").default("ok"),
+
+    // Demo flag
+    isDemo: integer("is_demo", { mode: "boolean" }).default(false),
 
     // Status
     isBookmarked: integer("is_bookmarked", { mode: "boolean" }).default(false),
@@ -49,17 +70,22 @@ export const items = sqliteTable(
   },
   (table) => [
     index("idx_items_published").on(table.publishedAt),
+    index("idx_items_discovered").on(table.discoveredAt),
+    index("idx_items_first_seen").on(table.firstSeenAt),
     index("idx_items_composite").on(table.compositeScore),
+    index("idx_items_freshness").on(table.freshnessScore),
     index("idx_items_category").on(table.category),
     index("idx_items_source").on(table.source),
     index("idx_items_cluster").on(table.clusterId),
     index("idx_items_company").on(table.company),
     index("idx_items_bookmarked").on(table.isBookmarked),
+    index("idx_items_demo").on(table.isDemo),
+    index("idx_items_date_confidence").on(table.dateConfidence),
+    index("idx_items_duplicate").on(table.duplicateOf),
   ]
 );
 
 // ─── Clusters ────────────────────────────────────────────────────────
-// Groups of related items covering the same story/event
 export const clusters = sqliteTable("clusters", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
@@ -69,40 +95,74 @@ export const clusters = sqliteTable("clusters", {
   lastUpdated: text("last_updated").notNull(),
   itemCount: integer("item_count").default(1),
   peakScore: real("peak_score").default(50),
-  trendVelocity: real("trend_velocity").default(0), // rate of new items
-  entities: text("entities"), // JSON
-  tags: text("tags"), // JSON
+  trendVelocity: real("trend_velocity").default(0),
+  leadItemId: text("lead_item_id"), // the best/primary item in the cluster
+  entities: text("entities"),
+  tags: text("tags"),
+  isDemo: integer("is_demo", { mode: "boolean" }).default(false),
 });
 
 // ─── Sources ─────────────────────────────────────────────────────────
-// Registry of data sources
 export const sources = sqliteTable("sources", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  type: text("type").notNull(), // blog, rss, api, scraper, github
+  type: text("type").notNull(),
   url: text("url").notNull(),
   category: text("category").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).default(true),
-  credibilityBase: real("credibility_base").default(70), // baseline credibility
-  lastFetched: text("last_fetched"),
-  lastError: text("last_error"),
+  credibilityBase: real("credibility_base").default(70),
+  trustTier: text("trust_tier").default("reputable"), // official, authoritative, reputable, aggregator, unverified
+  sourcePriority: integer("source_priority").default(50),
   fetchIntervalMinutes: integer("fetch_interval_minutes").default(60),
+
+  // Health tracking
+  lastFetched: text("last_fetched"),
+  lastSuccessAt: text("last_success_at"),
+  lastError: text("last_error"),
+  lastErrorAt: text("last_error_at"),
+  consecutiveFailures: integer("consecutive_failures").default(0),
+  totalFetches: integer("total_fetches").default(0),
+  totalErrors: integer("total_errors").default(0),
+  avgFetchDurationMs: integer("avg_fetch_duration_ms"),
+  lastItemCount: integer("last_item_count").default(0),
+  avgFreshness: real("avg_freshness"), // average freshness of items from this source
+
   config: text("config"), // JSON: source-specific config
 });
 
+// ─── Source Fetch Log ────────────────────────────────────────────────
+export const sourceFetchLog = sqliteTable(
+  "source_fetch_log",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+    durationMs: integer("duration_ms"),
+    itemsFetched: integer("items_fetched").default(0),
+    itemsNew: integer("items_new").default(0),
+    itemsSkipped: integer("items_skipped").default(0),
+    status: text("status").notNull(), // ok, error, partial
+    errorMessage: text("error_message"),
+    httpStatus: integer("http_status"),
+  },
+  (table) => [
+    index("idx_fetch_log_source").on(table.sourceId),
+    index("idx_fetch_log_date").on(table.fetchedAt),
+  ]
+);
+
 // ─── Entities ────────────────────────────────────────────────────────
-// Companies, labs, models, tools, people
 export const entities = sqliteTable(
   "entities",
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
-    type: text("type").notNull(), // company, lab, model, tool, person
+    type: text("type").notNull(),
     description: text("description"),
     url: text("url"),
     logoUrl: text("logo_url"),
-    aliases: text("aliases"), // JSON array
-    metadata: text("metadata"), // JSON
+    aliases: text("aliases"),
+    metadata: text("metadata"),
     mentionCount: integer("mention_count").default(0),
     lastMentioned: text("last_mentioned"),
   },
@@ -113,28 +173,29 @@ export const entities = sqliteTable(
 );
 
 // ─── Signals ─────────────────────────────────────────────────────────
-// Emerging patterns / early signals
 export const signals = sqliteTable("signals", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
-  signalType: text("signal_type").notNull(), // emerging_topic, convergence, acceleration, breakout
-  strength: real("strength").default(0), // 0-100
+  signalType: text("signal_type").notNull(),
+  strength: real("strength").default(0),
   firstDetected: text("first_detected").notNull(),
   lastUpdated: text("last_updated").notNull(),
-  relatedItemIds: text("related_item_ids"), // JSON array
-  relatedEntities: text("related_entities"), // JSON
-  tags: text("tags"), // JSON
+  relatedItemIds: text("related_item_ids"),
+  relatedEntities: text("related_entities"),
+  tags: text("tags"),
   isActive: integer("is_active", { mode: "boolean" }).default(true),
+  isDemo: integer("is_demo", { mode: "boolean" }).default(false),
 });
 
 // ─── User Preferences ───────────────────────────────────────────────
 export const userPreferences = sqliteTable("user_preferences", {
   id: text("id").primaryKey().default("default"),
-  interests: text("interests"), // JSON array of interest tags
+  interests: text("interests"),
   importanceThreshold: real("importance_threshold").default(30),
-  enabledCategories: text("enabled_categories"), // JSON array
-  alertSettings: text("alert_settings"), // JSON
+  enabledCategories: text("enabled_categories"),
+  alertSettings: text("alert_settings"),
+  defaultTimeWindow: text("default_time_window").default("3d"),
   updatedAt: text("updated_at"),
 });
 
@@ -153,12 +214,13 @@ export const bookmarks = sqliteTable(
 // ─── Alerts ─────────────────────────────────────────────────────────
 export const alerts = sqliteTable("alerts", {
   id: text("id").primaryKey(),
-  type: text("type").notNull(), // model_release, benchmark, paper, funding, product
+  type: text("type").notNull(),
   title: text("title").notNull(),
   itemId: text("item_id").references(() => items.id),
-  severity: text("severity").notNull().default("medium"), // low, medium, high, critical
+  severity: text("severity").notNull().default("medium"),
   isRead: integer("is_read", { mode: "boolean" }).default(false),
   createdAt: text("created_at").notNull(),
+  isDemo: integer("is_demo", { mode: "boolean" }).default(false),
 });
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -170,3 +232,4 @@ export type Entity = typeof entities.$inferSelect;
 export type Signal = typeof signals.$inferSelect;
 export type Alert = typeof alerts.$inferSelect;
 export type UserPreferences = typeof userPreferences.$inferSelect;
+export type SourceFetchLogEntry = typeof sourceFetchLog.$inferSelect;

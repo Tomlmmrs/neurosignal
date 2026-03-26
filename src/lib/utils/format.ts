@@ -1,3 +1,48 @@
+import type { DateConfidence } from "../types";
+
+/**
+ * Check if a date string is missing, invalid, or suspiciously old/future.
+ */
+export function isStaleDate(dateStr: string | null | undefined): boolean {
+  if (!dateStr) return true;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return true;
+  const ageMs = Date.now() - d.getTime();
+  if (ageMs < -86400000) return true; // > 1 day in future
+  if (ageMs > 14 * 24 * 60 * 60 * 1000) return true; // > 14 days old
+  return false;
+}
+
+/**
+ * Structured timestamp result for UI rendering.
+ */
+export interface FormattedTimestamp {
+  text: string;
+  stale: boolean;
+  unknown: boolean;
+  dateConfidence?: DateConfidence;
+}
+
+/**
+ * Format a date string into a structured result the UI can use to render
+ * appropriate indicators for unknown or stale dates.
+ */
+export function formatTimestamp(
+  dateStr: string | null | undefined,
+  dateConfidence?: DateConfidence | string | null
+): FormattedTimestamp {
+  if (!dateStr) return { text: 'Date unknown', stale: false, unknown: true, dateConfidence: 'unknown' };
+
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { text: 'Date unknown', stale: false, unknown: true, dateConfidence: 'unknown' };
+
+  const text = formatRelativeTime(dateStr);
+  const stale = isStaleDate(dateStr);
+  const conf = (dateConfidence as DateConfidence) ?? 'unknown';
+
+  return { text, stale, unknown: false, dateConfidence: conf };
+}
+
 /**
  * Format a date string as a relative time description, e.g. "2 hours ago".
  */
@@ -17,8 +62,8 @@ export function formatRelativeTime(dateStr: string): string {
   const years = Math.floor(days / 365);
 
   if (seconds < 60) return 'just now';
-  if (minutes === 1) return '1 minute ago';
-  if (minutes < 60) return `${minutes} minutes ago`;
+  if (minutes === 1) return '1 min ago';
+  if (minutes < 60) return `${minutes} min ago`;
   if (hours === 1) return '1 hour ago';
   if (hours < 24) return `${hours} hours ago`;
   if (days === 1) return '1 day ago';

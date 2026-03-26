@@ -9,7 +9,7 @@ const seenUrls = new Set<string>();
 
 // ─── Helpers ────────────────────────────────────────────────────────
 function daysAgo(n: number): string {
-  const d = new Date("2025-03-25T12:00:00Z");
+  const d = new Date(); // Use current time, not a hardcoded date
   d.setDate(d.getDate() - n);
   d.setHours(Math.floor(Math.random() * 14) + 8); // 8am-10pm
   d.setMinutes(Math.floor(Math.random() * 60));
@@ -103,7 +103,7 @@ async function seed() {
   ];
 
   for (const c of clusterData) {
-    db.insert(clusters).values(c).run();
+    db.insert(clusters).values({ ...c, isDemo: true }).run();
   }
 
   // ─── Items ──────────────────────────────────────────────────────
@@ -229,6 +229,8 @@ async function seed() {
       sourceType: item.sourceType,
       publishedAt: item.publishedAt,
       discoveredAt: item.publishedAt,
+      firstSeenAt: item.publishedAt,
+      dateConfidence: "exact",
       category: item.category,
       aiSummary: item.aiSummary,
       whyItMatters: item.whyItMatters,
@@ -244,7 +246,10 @@ async function seed() {
       impactScore: impact,
       practicalScore: prac,
       compositeScore: composite,
+      freshnessScore: 50,
       isOriginalSource: true,
+      isPrimarySource: item.sourceType === "blog",
+      isDemo: true,
       isBookmarked: false,
       isRead: false,
       isArchived: false,
@@ -347,7 +352,7 @@ async function seed() {
   ];
 
   for (const s of signalData) {
-    db.insert(signals).values(s).run();
+    db.insert(signals).values({ ...s, isDemo: true }).run();
   }
 
   // ─── Alerts ───────────────────────────────────────────────────────
@@ -366,7 +371,7 @@ async function seed() {
   ];
 
   for (const a of alertData) {
-    db.insert(alerts).values(a).run();
+    db.insert(alerts).values({ ...a, isDemo: true }).run();
   }
 
   console.log(`Seeded ${itemData.length} items, ${clusterData.length} clusters, ${entityData.length} entities, ${signalData.length} signals, ${alertData.length} alerts.`);

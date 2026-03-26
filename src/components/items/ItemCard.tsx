@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { formatDistanceToNow } from "date-fns";
 import {
   Bookmark,
   BookmarkCheck,
@@ -9,8 +8,13 @@ import {
   ChevronDown,
   ChevronUp,
   Code2,
+  AlertCircle,
+  Shield,
+  Clock,
+  HelpCircle,
 } from "lucide-react";
 import type { Item } from "@/lib/db/schema";
+import { formatTimestamp } from "@/lib/utils/format";
 
 const categoryColors: Record<string, string> = {
   model: "bg-cat-model/20 text-cat-model",
@@ -47,13 +51,37 @@ function ScoreBar({ label, value, color }: { label: string; value: number; color
   );
 }
 
-function relativeTime(dateStr: string | null | undefined): string {
-  if (!dateStr) return "";
-  try {
-    return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
-  } catch {
-    return "";
+function TimestampBadge({ dateStr, dateConfidence }: { dateStr: string | null | undefined; dateConfidence?: string | null }) {
+  const ts = formatTimestamp(dateStr, dateConfidence);
+
+  if (ts.unknown) {
+    return (
+      <span className="flex items-center gap-0.5 text-muted/60 italic" title="No publish date available">
+        <HelpCircle className="h-2.5 w-2.5" />
+        {ts.text}
+      </span>
+    );
   }
+
+  if (ts.stale) {
+    return (
+      <span className="flex items-center gap-0.5 text-muted/40" title="Content is older than 2 weeks">
+        <Clock className="h-2.5 w-2.5" />
+        {ts.text}
+      </span>
+    );
+  }
+
+  // Show a subtle indicator for estimated dates
+  if (ts.dateConfidence === "estimated") {
+    return (
+      <span className="text-muted" title="Publish date is estimated">
+        ~{ts.text}
+      </span>
+    );
+  }
+
+  return <span>{ts.text}</span>;
 }
 
 export default function ItemCard({ item }: { item: Item }) {
@@ -69,7 +97,7 @@ export default function ItemCard({ item }: { item: Item }) {
       await fetch(`/api/items`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, isBookmarked: next }),
+        body: JSON.stringify({ id: item.id, action: "bookmark" }),
       });
     } catch {
       setBookmarked(!next);
@@ -99,8 +127,16 @@ export default function ItemCard({ item }: { item: Item }) {
           )}
         </div>
         <div className="flex items-center gap-2 text-[10px] text-muted">
+          {item.isPrimarySource && (
+            <span className="flex items-center gap-0.5 text-emerald-500" title="Primary/official source">
+              <Shield className="h-2.5 w-2.5" />
+            </span>
+          )}
           <span>{item.source}</span>
-          <span>{relativeTime(item.publishedAt ?? item.discoveredAt)}</span>
+          <TimestampBadge
+            dateStr={item.publishedAt ?? item.discoveredAt}
+            dateConfidence={(item as any).dateConfidence}
+          />
         </div>
       </div>
 
@@ -128,7 +164,7 @@ export default function ItemCard({ item }: { item: Item }) {
       <div className="grid grid-cols-3 gap-x-4 gap-y-1 mb-2.5">
         <ScoreBar label="Importance" value={item.importanceScore ?? 50} color="bg-cat-company" />
         <ScoreBar label="Novelty" value={item.noveltyScore ?? 50} color="bg-cat-model" />
-        <ScoreBar label="Impact" value={item.impactScore ?? 50} color="bg-cat-opensource" />
+        <ScoreBar label="Freshness" value={item.freshnessScore ?? 50} color="bg-emerald-500" />
       </div>
 
       {/* Tags + actions */}

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getItems, toggleBookmark, markAsRead } from "@/lib/db/queries";
-import type { RankMode, Category } from "@/lib/types";
+import type { RankMode, Category, TimeWindow } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
 
   const opts = {
-    mode: (params.get("mode") || "important") as RankMode,
+    mode: (params.get("mode") || "latest") as RankMode,
     category: params.get("category") as Category | undefined,
     company: params.get("company") || undefined,
     isOpenSource: params.get("opensource") === "true" ? true : undefined,
@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     limit: params.get("limit") ? Number(params.get("limit")) : 50,
     offset: params.get("offset") ? Number(params.get("offset")) : 0,
     bookmarkedOnly: params.get("bookmarked") === "true",
+    timeWindow: (params.get("t") || "3d") as TimeWindow,
   };
 
   try {

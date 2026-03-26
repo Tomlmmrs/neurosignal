@@ -15,7 +15,7 @@ const modes = [
 export default function RankModeSelector() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeMode = searchParams.get("view") ?? "latest";
+  const activeMode = searchParams.get("view") ?? "latest"; // Default to latest, not important
 
   const handleSelect = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());

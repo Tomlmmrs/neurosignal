@@ -1,11 +1,12 @@
 import type { SourceAdapter, RawItem } from "../types";
+import type { DateConfidence } from "../../types";
 
 const AI_KEYWORDS = [
   "ai", "artificial-intelligence", "machine-learning", "deep-learning",
   "llm", "large-language-model", "gpt", "transformer", "neural-network",
   "nlp", "natural-language-processing", "computer-vision", "diffusion",
   "reinforcement-learning", "rag", "embeddings", "fine-tuning",
-  "langchain", "llamaindex", "autogen", "agents", "multimodal",
+  "langchain", "llamaindex", "autogen", "crewai", "agents", "multimodal",
   "stable-diffusion", "huggingface", "pytorch", "tensorflow", "jax",
 ];
 
@@ -18,34 +19,31 @@ export class GitHubAdapter implements SourceAdapter {
 
   constructor(config?: { id?: string; name?: string }) {
     this.id = config?.id ?? "github_trending";
-    this.name = config?.name ?? "GitHub Trending";
+    this.name = config?.name ?? "GitHub Trending AI";
     this.type = "github";
   }
 
   async fetch(): Promise<RawItem[]> {
     const token = process.env.GITHUB_TOKEN;
-
-    if (token) {
-      return this.fetchFromApi(token);
-    }
-
-    // Demo mode: return empty array. Demo data is seeded separately.
-    console.log(
-      "[github-adapter] No GITHUB_TOKEN set. Returning empty results (demo data is seeded separately)."
-    );
-    return [];
+    return this.fetchFromApi(token);
   }
 
-  private async fetchFromApi(token: string): Promise<RawItem[]> {
-    console.log("[github-adapter] Fetching AI/ML trending repos from GitHub API...");
+  private async fetchFromApi(token?: string): Promise<RawItem[]> {
+    console.log(`[github-adapter] Fetching AI/ML trending repos from GitHub API... (auth: ${!!token})`);
 
     const items: RawItem[] = [];
 
-    // Search for recently created/updated AI repos with high star counts
+    // Only look at repos created or with significant pushes in last 3 days
+    const since = new Date();
+    since.setDate(since.getDate() - 3);
+    const dateStr = since.toISOString().split("T")[0];
+
     const queries = [
-      "topic:artificial-intelligence+stars:>100+pushed:>2026-03-18",
-      "topic:llm+stars:>50+pushed:>2026-03-18",
-      "topic:machine-learning+stars:>100+pushed:>2026-03-18",
+      `topic:artificial-intelligence+stars:>100+created:>${dateStr}`,
+      `topic:llm+stars:>20+created:>${dateStr}`,
+      `topic:machine-learning+stars:>50+created:>${dateStr}`,
+      // Also look for recently pushed popular repos, but we'll handle dates differently
+      `topic:llm+stars:>500+pushed:>${dateStr}`,
     ];
 
     for (const q of queries) {
@@ -54,7 +52,7 @@ export class GitHubAdapter implements SourceAdapter {
           `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=10`,
           {
             headers: {
-              Authorization: `Bearer ${token}`,
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
               Accept: "application/vnd.github.v3+json",
               "User-Agent": "AI-Intelligence-Bot/1.0",
             },
@@ -71,22 +69,30 @@ export class GitHubAdapter implements SourceAdapter {
 
         for (const repo of data.items ?? []) {
           if (!this.isAiRelated(repo)) continue;
-
-          // Deduplicate by URL
           if (items.some((i) => i.url === repo.html_url)) continue;
 
+          // Use created_at as the canonical date — NOT updated_at
+          // updated_at changes on any push, issue, PR, etc. — it's not a publication date
+          const isNewRepo = q.includes("created:");
+          const publishDate = isNewRepo ? repo.created_at : repo.pushed_at;
+          const dateConfidence: DateConfidence = isNewRepo ? "exact" : "estimated";
+
           items.push({
-            title: repo.full_name,
+            title: `${repo.full_name}: ${repo.description?.slice(0, 100) || "AI repository"}`,
             url: repo.html_url,
             content: this.buildContent(repo),
-            publishedAt: repo.created_at,
+            publishedAt: publishDate,
+            updatedAt: repo.updated_at,
+            dateConfidence,
             metadata: {
               stars: repo.stargazers_count,
               forks: repo.forks_count,
               language: repo.language,
               topics: repo.topics,
               openIssues: repo.open_issues_count,
+              createdAt: repo.created_at,
               updatedAt: repo.updated_at,
+              pushedAt: repo.pushed_at,
             },
           });
         }
@@ -124,27 +130,16 @@ export class GitHubAdapter implements SourceAdapter {
 
   private buildContent(repo: GitHubRepo): string {
     const parts: string[] = [];
-
-    if (repo.description) {
-      parts.push(repo.description);
-    }
-
+    if (repo.description) parts.push(repo.description);
     parts.push(`Stars: ${repo.stargazers_count.toLocaleString()}`);
     parts.push(`Forks: ${repo.forks_count.toLocaleString()}`);
-
-    if (repo.language) {
-      parts.push(`Language: ${repo.language}`);
-    }
-
+    if (repo.language) parts.push(`Language: ${repo.language}`);
     if (repo.topics && repo.topics.length > 0) {
       parts.push(`Topics: ${repo.topics.join(", ")}`);
     }
-
     return parts.join(" | ");
   }
 }
-
-// ─── GitHub API types ────────────────────────────────────────────────
 
 interface GitHubSearchResponse {
   total_count: number;
@@ -162,4 +157,5 @@ interface GitHubRepo {
   topics: string[];
   created_at: string;
   updated_at: string;
+  pushed_at: string;
 }
