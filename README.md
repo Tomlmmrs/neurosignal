@@ -1,5 +1,7 @@
 # AI Intelligence
 
+<img width="1536" height="1024" alt="ChatGPT Image Mar 26, 2026, 10_22_34 AM" src="https://github.com/user-attachments/assets/04de6507-33da-45e9-9f69-343c244a6719" />
+
 An intelligence dashboard for staying ahead of the curve on AI developments. Aggregates, scores, clusters, and ranks AI news, model releases, research, tools, and signals — optimized for daily power-user scanning.
 
 ## Quick Start
