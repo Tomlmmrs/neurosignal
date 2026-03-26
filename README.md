@@ -1,6 +1,7 @@
 # AI Intelligence
 
-<img width="1536" height="1024" alt="AI Intelligence Dashboard" src="https://github.com/user-attachments/assets/04de6507-33da-45e9-9f69-343c244a6719" />
+<img width="1536" height="1024" alt="ChatGPT Image Mar 26, 2026, 03_47_14 PM" src="https://github.com/user-attachments/assets/16f6f311-e478-4149-8085-b47b9a980950" />
+
 
 Stay ahead of the curve on AI. One dashboard that cuts through the noise and surfaces what actually matters.
 
