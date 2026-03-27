@@ -31,7 +31,7 @@ export class RssAdapter implements SourceAdapter {
     try {
       const response = await globalThis.fetch(this.url, {
         headers: {
-          "User-Agent": "AI-Intelligence-Bot/1.0",
+          "User-Agent": "NeuroSignal-Bot/1.0",
           Accept: "application/rss+xml, application/xml, application/atom+xml, text/xml, */*",
         },
         signal: AbortSignal.timeout(15000),

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Activity, ArrowRight, Loader2, X } from "lucide-react";
+import { ArrowRight, Brain, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { getActiveNavigationState, navSections, type NavItem } from "./navigation";
 import { usePrefetchedNavigation } from "./usePrefetchedNavigation";
@@ -156,11 +156,11 @@ export default function Sidebar({ open, onClose, desktopVisible }: SidebarProps)
         <div className="flex h-16 items-center justify-between border-b border-border px-4">
           <Link href="/" onClick={onClose} className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border-subtle bg-card">
-              <Activity className="h-4 w-4 text-accent" />
+              <Brain className="h-4 w-4 text-accent" />
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold tracking-[0.18em] text-foreground">
-                AI INTELLIGENCE
+              <p className="truncate text-sm font-semibold tracking-[0.08em] text-foreground">
+                NeuroSignal
               </p>
               <p className="truncate text-[11px] text-muted-foreground">{activeItem.label}</p>
             </div>

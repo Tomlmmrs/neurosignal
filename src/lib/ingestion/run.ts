@@ -3,7 +3,7 @@ import { runAllSources } from "./pipeline";
 
 async function main() {
   console.log("=".repeat(60));
-  console.log("AI Intelligence - Ingestion Pipeline");
+  console.log("NeuroSignal - Ingestion Pipeline");
   console.log("=".repeat(60));
   console.log(`Started at: ${new Date().toISOString()}`);
   console.log();

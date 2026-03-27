@@ -93,7 +93,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="max-w-lg rounded-xl border border-border bg-card p-6 text-center sm:p-8">
-          <h1 className="mb-4 text-2xl font-bold text-foreground">AI Intelligence</h1>
+          <h1 className="mb-4 text-2xl font-bold text-foreground">NeuroSignal</h1>
           <p className="mb-6 text-muted">Database not initialized. Run the setup command:</p>
           <code className="block rounded-lg bg-background px-4 py-3 text-sm text-accent">
             npm run db:seed

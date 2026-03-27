@@ -27,7 +27,7 @@ export class HuggingFacePapersAdapter implements SourceAdapter {
         "https://huggingface.co/api/daily_papers",
         {
           headers: {
-            "User-Agent": "AI-Intelligence-Bot/1.0",
+            "User-Agent": "NeuroSignal-Bot/1.0",
             Accept: "application/json",
           },
           signal: AbortSignal.timeout(15000),

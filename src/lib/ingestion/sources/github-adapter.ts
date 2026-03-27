@@ -54,7 +54,7 @@ export class GitHubAdapter implements SourceAdapter {
             headers: {
               ...(token ? { Authorization: `Bearer ${token}` } : {}),
               Accept: "application/vnd.github.v3+json",
-              "User-Agent": "AI-Intelligence-Bot/1.0",
+              "User-Agent": "NeuroSignal-Bot/1.0",
             },
             signal: AbortSignal.timeout(15000),
           }

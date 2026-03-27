@@ -2,33 +2,34 @@ import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://aiintelligence.dev";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://neurosignal.app";
 
 export const metadata: Metadata = {
   title: {
-    default: "AI Intelligence — Daily AI News & Developments",
-    template: "%s | AI Intelligence",
+    default: "NeuroSignal — Daily AI News & Developments",
+    template: "%s | NeuroSignal",
   },
   description:
     "Curated AI news dashboard tracking model releases, tools, open source projects, and industry developments. Stay ahead of the curve.",
   metadataBase: new URL(siteUrl),
   openGraph: {
-    title: "AI Intelligence — Daily AI News & Developments",
+    title: "NeuroSignal — Daily AI News & Developments",
     description:
       "Curated AI news dashboard tracking model releases, tools, open source projects, and industry developments.",
     url: siteUrl,
-    siteName: "AI Intelligence",
+    siteName: "NeuroSignal",
     type: "website",
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "AI Intelligence",
+    title: "NeuroSignal",
     description:
       "Curated AI news dashboard tracking model releases, tools, open source, and industry developments.",
   },
   icons: {
     icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
   },
 };
 

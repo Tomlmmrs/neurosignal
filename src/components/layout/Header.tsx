@@ -3,7 +3,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Activity, Loader2, Menu, PanelLeft, Search, X } from "lucide-react";
+import { Brain, Loader2, Menu, PanelLeft, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { getActiveNavigationState } from "./navigation";
 import { usePrefetchedNavigation } from "./usePrefetchedNavigation";
@@ -76,11 +76,11 @@ export default function Header({
 
           <Link href="/" className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border-subtle bg-card shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-              <Activity className="h-4 w-4 text-accent" />
+              <Brain className="h-4 w-4 text-accent" />
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold tracking-[0.2em] text-foreground">
-                AI INTELLIGENCE
+              <p className="truncate text-sm font-semibold tracking-[0.12em] text-foreground">
+                NeuroSignal
               </p>
               <p className="truncate text-[11px] text-muted-foreground md:hidden">
                 {activeItem.label}
