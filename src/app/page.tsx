@@ -1,12 +1,11 @@
 import StatsBar from "@/components/dashboard/StatsBar";
-import TopEntities from "@/components/dashboard/TopEntities";
 import CategoryFilter from "@/components/filters/CategoryFilter";
 import RankModeSelector from "@/components/filters/RankModeSelector";
 import ResearchDepthFilter from "@/components/filters/ResearchDepthFilter";
 import TimeWindowFilter from "@/components/filters/TimeWindowFilter";
 import ItemList from "@/components/items/ItemList";
 import AppShell from "@/components/layout/AppShell";
-import { getDashboardStats, getFeedSections, getItems, getTopEntities } from "@/lib/db/queries";
+import { getDashboardStats, getFeedSections, getItems } from "@/lib/db/queries";
 import type { Category, RankMode, TimeWindow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -73,13 +72,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   let stats: any;
   let sections: any = null;
   let items: any[] = [];
-  let topEntities: any[] = [];
 
   try {
-    [stats, topEntities] = await Promise.all([
-      getDashboardStats(),
-      getTopEntities(undefined, 9),
-    ]);
+    stats = await getDashboardStats();
 
     if (isFilteredView) {
       items = await getItems({
@@ -110,7 +105,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   return (
     <AppShell>
-      <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+      <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <div className="space-y-4 sm:space-y-6">
           <div className="space-y-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted">
@@ -163,84 +158,78 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </section>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_21rem]">
-          <div className="min-w-0">
-            {sections && (
-              <div className="space-y-8 sm:space-y-10">
-                <FeedSection
-                  title="Major AI Releases"
-                  description="Model launches, flagship announcements, and product releases with broad practical impact."
-                  items={sections.releases}
-                />
-                <FeedSection
-                  title="Important Developments"
-                  description="The biggest moves across labs, companies, infrastructure, policy, and the market."
-                  items={sections.developments}
-                />
-                <FeedSection
-                  title="New Tools & Products"
-                  description="Useful product launches, APIs, platforms, and tooling updates people can act on."
-                  items={sections.tools}
-                />
-                <FeedSection
-                  title="Important Research"
-                  description="A smaller set of research items that are relevant to real-world products and decisions."
-                  items={sections.research}
-                />
+        <div className="mt-6">
+          {sections && (
+            <div className="space-y-8 sm:space-y-10">
+              <FeedSection
+                title="Major AI Releases"
+                description="Model launches, flagship announcements, and product releases with broad practical impact."
+                items={sections.releases}
+              />
+              <FeedSection
+                title="Important Developments"
+                description="The biggest moves across labs, companies, infrastructure, policy, and the market."
+                items={sections.developments}
+              />
+              <FeedSection
+                title="New Tools & Products"
+                description="Useful product launches, APIs, platforms, and tooling updates people can act on."
+                items={sections.tools}
+              />
+              <FeedSection
+                title="Important Research"
+                description="A smaller set of research items that are relevant to real-world products and decisions."
+                items={sections.research}
+              />
 
-                {Object.values(sections).every((sectionItems: any) => sectionItems.length === 0) && (
-                  <div className="rounded-2xl border border-border bg-card p-6 text-center sm:p-8">
-                    <p className="text-sm text-muted-foreground">
-                      No items found in this time window. Try expanding the time range.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {isFilteredView && (
-              <div className="space-y-3">
-                <div className="border-b border-border-subtle pb-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted">
-                    Filtered Feed
+              {Object.values(sections).every((sectionItems: any) => sectionItems.length === 0) && (
+                <div className="rounded-2xl border border-border bg-card p-6 text-center sm:p-8">
+                  <p className="text-sm text-muted-foreground">
+                    No items found in this time window. Try expanding the time range.
                   </p>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div>
-                      <h2 className="text-base font-semibold text-foreground sm:text-lg">
-                        {search
-                          ? "Search Results"
-                          : mode === "important"
-                            ? "Most Important"
-                            : mode === "research"
-                              ? "Research to Watch"
-                              : "Latest Updates"}
-                      </h2>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        A simplified feed view based on the current lens and filters.
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                      {items.length}
-                    </span>
-                  </div>
                 </div>
+              )}
+            </div>
+          )}
 
-                {items.length === 0 && !search ? (
-                  <div className="rounded-2xl border border-border bg-card p-6 text-center sm:p-8">
-                    <p className="text-sm text-muted-foreground">
-                      No items found. Try adjusting the time window or category filters.
+          {isFilteredView && (
+            <div className="space-y-3">
+              <div className="border-b border-border-subtle pb-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted">
+                  Filtered Feed
+                </p>
+                <div className="mt-2 flex items-end justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground sm:text-lg">
+                      {search
+                        ? "Search Results"
+                        : mode === "important"
+                          ? "Most Important"
+                          : mode === "research"
+                            ? "Research to Watch"
+                            : "Latest Updates"}
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      A simplified feed view based on the current lens and filters.
                     </p>
                   </div>
-                ) : (
-                  <ItemList items={items} showCount={false} />
-                )}
+                  <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                    {items.length}
+                  </span>
+                </div>
               </div>
-            )}
-          </div>
 
-          <aside className="space-y-4 xl:sticky xl:top-20 xl:self-start">
-            <TopEntities entities={topEntities} />
-          </aside>
+              {items.length === 0 && !search ? (
+                <div className="rounded-2xl border border-border bg-card p-6 text-center sm:p-8">
+                  <p className="text-sm text-muted-foreground">
+                    No items found. Try adjusting the time window or category filters.
+                  </p>
+                </div>
+              ) : (
+                <ItemList items={items} showCount={false} />
+              )}
+            </div>
+          )}
         </div>
       </div>
     </AppShell>

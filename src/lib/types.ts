@@ -1,8 +1,6 @@
 export type RankMode = 'latest' | 'important' | 'research';
 export type Category = 'model' | 'tool' | 'research' | 'company' | 'opensource' | 'policy' | 'market';
 export type SourceType = 'blog' | 'research' | 'news' | 'social' | 'github' | 'release' | 'api' | 'rss';
-export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type SignalType = 'emerging_topic' | 'convergence' | 'acceleration' | 'breakout';
 export type TimeWindow = '24h' | '3d' | '7d' | '30d' | 'all';
 export type DateConfidence = 'exact' | 'day' | 'estimated' | 'unknown';
 export type SourceTrustTier = 'official' | 'authoritative' | 'reputable' | 'aggregator' | 'unverified';

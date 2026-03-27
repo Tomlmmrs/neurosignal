@@ -210,19 +210,6 @@ export async function getItemsByCluster(clusterId: string) {
     .all();
 }
 
-export async function getTopEntities(type?: string, limit = 20) {
-  const entities = schema.entities;
-  const conditions = type ? eq(entities.type, type) : undefined;
-
-  return await db
-    .select()
-    .from(entities)
-    .where(conditions)
-    .orderBy(desc(entities.mentionCount))
-    .limit(limit)
-    .all();
-}
-
 // ─── Clusters ───────────────────────────────────────────────────────
 
 // ─── Stats ──────────────────────────────────────────────────────────

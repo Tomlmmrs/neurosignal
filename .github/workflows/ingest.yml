@@ -12,6 +12,14 @@ jobs:
     steps:
       - name: Trigger ingestion
         run: |
-          curl -sf -X POST \
+          response=$(curl -s -w "\n%{http_code}" -X POST \
             -H "x-api-key: ${{ secrets.INGEST_API_KEY }}" \
-            "${{ secrets.SITE_URL }}/api/ingest"
+            "${{ secrets.SITE_URL }}/api/ingest")
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n1)
+          echo "HTTP $status"
+          echo "$body"
+          if [ "$status" != "200" ]; then
+            echo "Ingestion failed with HTTP $status"
+            exit 1
+          fi
