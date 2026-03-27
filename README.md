@@ -1,9 +1,8 @@
-# AI Intelligence
+# NeuroSignal
 
-<img width="1536" height="1024" alt="ChatGPT Image Mar 26, 2026, 03_47_14 PM" src="https://github.com/user-attachments/assets/16f6f311-e478-4149-8085-b47b9a980950" />
+<img width="1000" height="259" alt="image" src="https://github.com/user-attachments/assets/a08bf684-0a8f-4505-801f-70ad99689ad4" />
 
-
-Stay ahead of the curve on AI. One dashboard that cuts through the noise and surfaces what actually matters.
+High-signal AI insights. No noise.
 
 ## What you get
 
