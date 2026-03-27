@@ -1,11 +1,12 @@
 import StatsBar from "@/components/dashboard/StatsBar";
+import TopEntities from "@/components/dashboard/TopEntities";
 import CategoryFilter from "@/components/filters/CategoryFilter";
 import RankModeSelector from "@/components/filters/RankModeSelector";
 import ResearchDepthFilter from "@/components/filters/ResearchDepthFilter";
 import TimeWindowFilter from "@/components/filters/TimeWindowFilter";
 import ItemList from "@/components/items/ItemList";
 import AppShell from "@/components/layout/AppShell";
-import { getDashboardStats, getFeedSections, getItems } from "@/lib/db/queries";
+import { getDashboardStats, getFeedSections, getItems, getTopEntities } from "@/lib/db/queries";
 import type { Category, RankMode, TimeWindow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -72,9 +73,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   let stats: any;
   let sections: any = null;
   let items: any[] = [];
+  let topEntities: any[] = [];
 
   try {
-    stats = await getDashboardStats();
+    [stats, topEntities] = await Promise.all([
+      getDashboardStats(),
+      getTopEntities(8),
+    ]);
 
     if (isFilteredView) {
       items = await getItems({
@@ -158,7 +163,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </section>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:gap-8">
+          <div>
           {sections && (
             <div className="space-y-8 sm:space-y-10">
               <FeedSection
@@ -229,6 +235,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 <ItemList items={items} showCount={false} />
               )}
             </div>
+          )}
+          </div>
+
+          {topEntities.length > 0 && (
+            <aside className="mt-8 xl:mt-0">
+              <div className="xl:sticky xl:top-24">
+                <TopEntities entities={topEntities} />
+              </div>
+            </aside>
           )}
         </div>
       </div>

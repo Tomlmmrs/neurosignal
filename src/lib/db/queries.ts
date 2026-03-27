@@ -434,6 +434,36 @@ export async function getFeedSections(timeWindow: TimeWindow = "3d") {
   return { releases, tools, developments, research };
 }
 
+// ─── Top Entities ────────────────────────────────────────────────────
+
+export async function getTopEntities(limit = 8, windowHours = 72) {
+  const rows = await db
+    .select({
+      company: items.company,
+      count: sql<number>`count(*)`,
+      avgScore: sql<number>`AVG(${items.compositeScore})`,
+    })
+    .from(items)
+    .where(
+      and(
+        eq(items.isDemo, false),
+        isNull(items.duplicateOf),
+        sql`${items.company} IS NOT NULL`,
+        sql`COALESCE(${items.publishedAt}, ${items.discoveredAt}) >= datetime('now', '-${sql.raw(String(windowHours))} hours')`
+      )
+    )
+    .groupBy(items.company)
+    .orderBy(desc(sql`count(*)`))
+    .limit(limit)
+    .all();
+
+  return rows.filter((r) => r.company !== null) as {
+    company: string;
+    count: number;
+    avgScore: number;
+  }[];
+}
+
 // ─── Ingestion Stats (for admin) ────────────────────────────────────
 
 export async function getIngestionStats() {
