@@ -2,8 +2,6 @@
 
 <img width="1000" height="259" alt="image" src="https://github.com/user-attachments/assets/a08bf684-0a8f-4505-801f-70ad99689ad4" />
 
-High-signal AI insights. No noise.
-
 ## What you get
 
 - **Major AI Releases** — New models and announcements as they drop
